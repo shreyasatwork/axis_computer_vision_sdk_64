@@ -6,15 +6,15 @@ ARG AXIS_ARCH=aarch64
 # BUILD_ROOT defines where in the build containers the building takes place
 ARG BUILD_ROOT=/build-root
 # DOCKERHUB_ARCH is the DockerHub platform descriptor
-ARG DOCKERHUB_ARCH=armv7hf
+ARG DOCKERHUB_ARCH=arm64v8
 # OPENCV_MODULES defines what OpenCV modules to build
 ARG OPENCV_MODULES=core,imgproc,imgcodecs,videoio,objdetect,python3,video
 # SDK_ROOT_DIR defines the root directory of the final SDK images
 ARG SDK_ROOT_DIR=/axis/
 # UBUNTU_ARCH is the Ubuntu platform descriptor
-ARG UBUNTU_ARCH=armhf
+ARG UBUNTU_ARCH=arm64
 # TARGET_TOOLCHAIN is the name of the compilation toolchain for the target platform
-ARG TARGET_TOOLCHAIN=arm-linux-gnueabihf
+ARG TARGET_TOOLCHAIN=aarch64
 # TARGET_ROOT defines where in the build containers the resulting application is put
 ARG TARGET_ROOT=/target-root
 # UBUNTU_VERSION defines the ubuntu version of the build and SDK containers
@@ -100,7 +100,7 @@ RUN apt-get update && apt-get install -yf --no-install-recommends \
         crossbuild-essential-$UBUNTU_ARCH \
         cmake \
         curl \
-        gfortran-$TARGET_TOOLCHAIN \
+        gfortran-9-aarch64-linux-gnu \
         git \
         gfortran \
         libtool \
@@ -167,8 +167,8 @@ ARG OPENBLAS_VERSION
 WORKDIR ${BUILD_ROOT}
 RUN git clone --depth 1 --branch ${OPENBLAS_VERSION}  https://github.com/xianyi/OpenBLAS.git
 WORKDIR ${BUILD_ROOT}/OpenBLAS
-RUN HAVE_NEON=1 make -j ${OPENBLAS_BUILD_CORES} TARGET=CORTEXA53 CC=$TARGET_NAME-gcc FC=$TARGET_NAME-gfortran HOSTCC=gcc
-RUN make install PREFIX=$TARGET_ROOT/usr
+#RUN HAVE_NEON=1 make -j ${OPENBLAS_BUILD_CORES} TARGET=CORTEXA53 CC=aarch64-linux-gnu-gcc FC=gfortran-9-aarch64-linux-gnu HOSTCC=gcc
+#RUN make install PREFIX=$TARGET_ROOT/usr
 
 
 
