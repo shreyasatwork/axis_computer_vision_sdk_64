@@ -101,8 +101,11 @@ RUN apt-get update && apt-get install -yf --no-install-recommends \
         cmake \
         curl \
         gfortran-9-aarch64-linux-gnu \
+	gfortran-aarch64-linux-gnu \
         git \
         gfortran \
+	g++-10 \
+	gcc-10 \
         libtool \
         pkg-config \
         python3-dev \
@@ -143,10 +146,12 @@ ENV https_proxy=$https_proxy
 COPY --from=multiarch/qemu-user-static:x86_64-arm-5.2.0-2 /usr/bin/qemu-arm-static /usr/bin/
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        build-essential \
+        gcc-10 \
+	build-essential \
         ca-certificates \
         curl \
         gfortran \
+	gfortran-9-aarch64-linux-gnu \
         git \
         pkg-config \
     && update-ca-certificates
@@ -167,8 +172,8 @@ ARG OPENBLAS_VERSION
 WORKDIR ${BUILD_ROOT}
 RUN git clone --depth 1 --branch ${OPENBLAS_VERSION}  https://github.com/xianyi/OpenBLAS.git
 WORKDIR ${BUILD_ROOT}/OpenBLAS
-#RUN HAVE_NEON=1 make -j ${OPENBLAS_BUILD_CORES} TARGET=CORTEXA53 CC=aarch64-linux-gnu-gcc FC=gfortran-9-aarch64-linux-gnu HOSTCC=gcc
-#RUN make install PREFIX=$TARGET_ROOT/usr
+RUN HAVE_NEON=1 make -j ${OPENBLAS_BUILD_CORES} TARGET=CORTEXA53 CC=aarch64-linux-gnu-gcc FC=gfortran-aarch64-linux-gnu HOSTCC=gcc-10
+RUN make install PREFIX=$TARGET_ROOT/usr
 
 
 
