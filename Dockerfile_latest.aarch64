@@ -178,5 +178,21 @@ RUN HAVE_NEON=1 make -j ${OPENBLAS_BUILD_CORES} TARGET=CORTEXA53 CC=aarch64-linu
 RUN make install PREFIX=$TARGET_ROOT/usr
 
 
+# Crosscompile Python
+FROM build-base as build-python-cross
+ARG ARCH_CFLAGS
+ARG PYTHON_VERSION
+ARG PYTHON_BUILD_CORES
+RUN mkdir -p $BUILD_ROOT/python_deps
+WORKDIR /usr/bin
+RUN ln -s python3.*[0-9] python
+
+# Get optional Python module dependencies
+RUN apt-get install --reinstall --download-only -o=dir::cache=$BUILD_ROOT/python_deps -y -f \
+        libbz2-dev:$UBUNTU_ARCH zlib1g-dev:$UBUNTU_ARCH libssl1.1:$UBUNTU_ARCH libffi-dev:$UBUNTU_ARCH libssl-dev:$UBUNTU_ARCH libreadline6-dev:$UBUNTU_ARCH
+WORKDIR $TARGET_ROOT
+RUN for f in $BUILD_ROOT/python_deps/archives/*.deb; do dpkg -x $f $TARGET_ROOT; done
+RUN mv $TARGET_ROOT/lib/aarch64-linux-gnu/* $TARGET_ROOT/usr/lib/aarch64-linux-gnu/ 
+RUN rm -rf $TARGET_ROOT/lib
 
 
