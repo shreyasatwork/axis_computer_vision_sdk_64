@@ -195,4 +195,16 @@ RUN for f in $BUILD_ROOT/python_deps/archives/*.deb; do dpkg -x $f $TARGET_ROOT;
 RUN mv $TARGET_ROOT/lib/aarch64-linux-gnu/* $TARGET_ROOT/usr/lib/aarch64-linux-gnu/ 
 RUN rm -rf $TARGET_ROOT/lib
 
+# TARGET_TOOLCHAIN = aarch64-linux-gnu.
+
+# Copy selected libs we need for python compilation
+WORKDIR $TARGET_ROOT/usr/lib/aarch64-linux-gnu/
+RUN cp -R libffi* libreadline* libssl* libz* libcrypt* libncurses* libunistring* libidn* libtinfo* libgpm* libbz2* ..
+RUN cp -r $TARGET_ROOT/usr/include/aarch64-linux-gnu/* $TARGET_ROOT/usr/include/ && rm -r $TARGET_ROOT/usr/include/aarch64-linux-gnu
+
+# Download Python
+RUN curl https://www.python.org/ftp/python/$PYTHON_VERSION/Python-$PYTHON_VERSION.tgz -o $BUILD_ROOT/python.tgz
+RUN tar -xf $BUILD_ROOT/python.tgz -C $BUILD_ROOT/
+WORKDIR $BUILD_ROOT/Python-$PYTHON_VERSION
+
 
