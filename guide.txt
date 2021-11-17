@@ -1,0 +1,17 @@
+1. open hello world cross compiled
+
+docker run -v C:\Users\shrey\Downloads\acap3-examples\hello-world:/opt/hello-world --rm -i -t axisecp/acap-native-sdk:1.0-armv7hf-ubuntu20.04
+
+
+2. how to acap build
+
+acap-build ../hello_world/app
+
+3. how to docker run
+
+docker build . --tag myapp --file C:\Users\shrey\Downloads\acap-computer-vision-sdk-1.0\acap-computer-vision-sdk-1.0\sdk\Dockerfile.armv7hf
+
+4. dockerx
+
+docker buildx create --use --name larger_log --driver-opt env.BUILDKIT_STEP_LOG_MAX_SIZE=50000000
+docker buildx build . --tag myapp --file C:\Users\shrey\Downloads\acap-computer-vision-sdk-1.0\acap-computer-vision-sdk-1.0\sdk\Dockerfile_latest.aarch64
