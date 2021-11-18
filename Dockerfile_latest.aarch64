@@ -232,5 +232,16 @@ RUN ln -s python3.*[0-9] python3
 RUN mkdir -p $TARGET_ROOT/usr/include/aarch64-linux-gnu/$(cat /tmp/python_version) && \
     cp -r $TARGET_ROOT/usr/include/$(cat /tmp/python_version)/* $TARGET_ROOT/usr/include/aarch64-linux-gnu/$(cat /tmp/python_version)
 
+# Continue Python install with installing
+# pip in emulated environment
+FROM build-base-arm as build-python
+ENV PATH=$TARGET_ROOT/usr/bin:$PATH
+ENV LD_LIBRARY_PATH=$TARGET_ROOT/usr/lib:$LD_LIBRARY_PATH
+COPY --from=build-python-cross $TARGET_ROOT $TARGET_ROOT
+WORKDIR ${BUILD_ROOT}/pip
+RUN curl https://bootstrap.pypa.io/get-pip.py -o get-pip.py
+RUN $TARGET_ROOT/usr/bin/python3 get-pip.py
+# Fix to not use static paths to $TARGET_ROOT
+RUN sed -i '1s/.*/#!\/usr\/bin\/env python3/g' $TARGET_ROOT/usr/bin/pip*
 
 
