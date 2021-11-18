@@ -31,7 +31,6 @@ ARG PYTESSERACT_VERSION=0.3.7
 ARG SCIPY_VERSION=v1.7.1
 ARG TESSERACT_VERSION=4.1.1
 ARG TFSERVING_VERSION=2.0.0
-ARG GCC_VERSION=10.0.0
 
 #-- Build parallelization  --#
 ARG OPENBLAS_BUILD_CORES=2
@@ -243,5 +242,70 @@ RUN curl https://bootstrap.pypa.io/get-pip.py -o get-pip.py
 RUN $TARGET_ROOT/usr/bin/python3 get-pip.py
 # Fix to not use static paths to $TARGET_ROOT
 RUN sed -i '1s/.*/#!\/usr\/bin\/env python3/g' $TARGET_ROOT/usr/bin/pip*
+
+# Build NumPy with OpenBLAS
+# This build is done emulated right now until more work
+# has been put in researching how to crosscompile
+# python packages
+# Building numpy like this vs apt-get shows ~5% lower proc times
+# in basic math ops
+# Building numpy with OpenBLAS as BLAS/Lapack vs built-in BLAS/Lapack
+# shows between 50% to 99% lower proc times depending on the linalg op used
+FROM build-base-arm AS build-python-numpy
+ARG ARCH_CFLAGS
+ARG NUMPY_BUILD_CORES
+ARG NUMPY_VERSION
+ENV CFLAGS="$ARCH_CFLAGS"
+ENV LD_LIBRARY_PATH=$BUILD_ROOT/usr/lib:$LD_LIBRARY_PATH
+ENV NPY_NUM_BUILD_JOBS=$NUMPY_BUILD_CORES
+ENV PATH=$BUILD_ROOT/usr/bin:$BUILD_ROOT/usr/local/bin:$PATH
+COPY --from=build-openblas $TARGET_ROOT $BUILD_ROOT
+COPY --from=build-python $TARGET_ROOT $BUILD_ROOT
+WORKDIR $BUILD_ROOT
+RUN git clone --depth 1 --branch ${NUMPY_VERSION}  https://github.com/numpy/numpy
+WORKDIR $BUILD_ROOT/numpy
+RUN cp site.cfg.example site.cfg
+RUN echo "[openblas]\n" \
+         "libraries = openblas\n" \
+         "library_dirs = ${BUILD_ROOT}/usr/lib\n" \
+         "include_dirs = ${BUILD_ROOT}/usr/include\n" \
+         "[default]\n" \
+         "include_dirs = ${BUILD_ROOT}/usr/include\n" \
+         "library_dirs = ${BUILD_ROOT}/usr/lib\n" \
+         "[lapack]\n" \
+         "lapack_libs = openblas\n" \
+         "library_dirs = ${BUILD_ROOT}/usr/lib\n" \
+         >> site.cfg
+RUN CC="gcc -I$BUILD_ROOT/usr/include -I$BUILD_ROOT/usr/include/$(cat /tmp/python_version) $ARCH_CFLAGS" python3 -m pip install cython
+RUN CC="gcc -I$BUILD_ROOT/usr/include -I$BUILD_ROOT/usr/include/$(cat /tmp/python_version) $ARCH_CFLAGS" python3 setup.py config
+RUN CC="gcc -I$BUILD_ROOT/usr/include -I$BUILD_ROOT/usr/include/$(cat /tmp/python_version) $ARCH_CFLAGS" python3 -m pip install . --use-feature=in-tree-build -v --prefix=$TARGET_ROOT/usr
+RUN mkdir -p ${BUILD_ROOT}/python-numpy-deps
+RUN apt-get install --reinstall --download-only -o=dir::cache=${BUILD_ROOT}/python-numpy-deps -y --no-install-recommends \
+        libgfortran5
+RUN for f in ${BUILD_ROOT}/python-numpy-deps/archives/*.deb; do dpkg -x $f $TARGET_ROOT; done
+
+
+# Build SciPy with OpenBLAS
+FROM build-base-arm AS build-python-scipy
+ARG ARCH_CFLAGS
+ARG SCIPY_BUILD_CORES
+ARG SCIPY_VERSION
+ENV CC="gcc -I$BUILD_ROOT/usr/include $ARCH_CFLAGS"
+ENV CFLAGS="$ARCH_CFLAGS"
+ENV LD_LIBRARY_PATH=$BUILD_ROOT/usr/lib:$LD_LIBRARY_PATH
+ENV NPY_NUM_BUILD_JOBS=$SCIPY_BUILD_CORES
+ENV PATH=$BUILD_ROOT/usr/bin:$BUILD_ROOT/usr/local/bin:$PATH
+WORKDIR $BUILD_ROOT
+RUN git clone --depth 1 --branch ${SCIPY_VERSION}  https://github.com/scipy/scipy.git
+WORKDIR $BUILD_ROOT/scipy
+RUN git submodule update --init
+COPY --from=build-openblas $TARGET_ROOT $BUILD_ROOT
+COPY --from=build-python $TARGET_ROOT $BUILD_ROOT
+COPY --from=build-python-numpy $TARGET_ROOT $BUILD_ROOT
+ENV LAPACK=${BUILD_ROOT}/usr/lib/libopenblas.so
+ENV BLAS=${BUILD_ROOT}/usr/lib/libopenblas.so
+RUN python3 -m pip install cython tempita==0.4 pybind11 pythran
+RUN python3 setup.py build_ext -j $SCIPY_BUILD_CORES bdist_wheel
+RUN python3 -m pip install dist/*.whl --prefix=$TARGET_ROOT/usr
 
 
