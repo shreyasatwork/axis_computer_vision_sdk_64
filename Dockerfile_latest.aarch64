@@ -22,6 +22,9 @@ ARG UBUNTU_VERSION=20.04
 # UBUNTU_CODENAME should be the ubuntu codename of the UBUNTU_VERSION used, e.g., focal, hirsute, ..
 ARG UBUNTU_CODENAME=focal
 
+
+
+
 #-- Versions of installed packages defined as repository tags --#
 ARG NUMPY_VERSION=v1.17.3
 ARG OPENBLAS_VERSION=v0.3.14
@@ -65,6 +68,7 @@ ARG UBUNTU_ARCH
 ARG UBUNTU_CODENAME
 ARG http_proxy
 ARG https_proxy
+
 
 # To support DOCKER_BUILDKIT=0, base ARGs are converted to ENVs to allow propagation
 ENV BUILD_ROOT=$BUILD_ROOT
@@ -113,6 +117,7 @@ RUN apt-get update && apt-get install -yf --no-install-recommends \
         python3-pip \
         python3-venv \
         wget \
+	libleptonica-dev \
  	&& update-ca-certificates \
  	&& apt-get clean
 
@@ -137,6 +142,7 @@ ARG https_proxy
 
 # To support DOCKER_BUILDKIT=0, base ARGs are converted to ENVs to allow propagation
 ENV BUILD_ROOT=$BUILD_ROOT
+
 ENV TARGET_TOOLCHAIN=$TARGET_TOOLCHAIN
 ENV TARGET_ROOT=$TARGET_ROOT
 ENV UBUNTU_ARCH=$UBUNTU_ARCH
@@ -307,5 +313,147 @@ ENV BLAS=${BUILD_ROOT}/usr/lib/libopenblas.so
 RUN python3 -m pip install cython tempita==0.4 pybind11 pythran
 RUN python3 setup.py build_ext -j $SCIPY_BUILD_CORES bdist_wheel
 RUN python3 -m pip install dist/*.whl --prefix=$TARGET_ROOT/usr
+
+
+
+# Compile the protofiles natively
+FROM build-base AS build-python-tfserving
+ARG TFSERVING_VERSION
+RUN apt-get install -y --no-install-recommends \
+    libprotobuf-dev \
+    python3-grpc-tools \
+    python3-grpcio
+WORKDIR ${BUILD_ROOT}
+RUN git clone --depth 1 --branch v${TFSERVING_VERSION}  https://github.com/tensorflow/tensorflow.git
+RUN git clone --depth 1 --branch ${TFSERVING_VERSION}  https://github.com/tensorflow/serving.git
+
+COPY tfserving/install-tf.sh .
+RUN ./install-tf.sh ${BUILD_ROOT}/tensorflow ${BUILD_ROOT}/serving $TARGET_ROOT
+WORKDIR $TARGET_ROOT/usr/lib/python3/site-packages
+COPY tfserving/tf_proto_utils.py .
+
+ARG TARGET_ROOT=/target-root
+RUN mkdir -p ${BUILD_ROOT}/python-grpc
+RUN apt-get install --download-only -o=dir::cache=${BUILD_ROOT}/python-grpc -y --no-install-recommends \
+        python3-grpcio:arm64 \
+        python3-protobuf:arm64
+
+WORKDIR $TARGET_ROOT
+RUN for f in ${BUILD_ROOT}/python-grpc/archives/*.deb; do dpkg -x $f $TARGET_ROOT; done
+RUN find * -maxdepth 0 -type d -not -name 'usr' -and -not -name 'lib' -exec rm -rf {} \;
+RUN rm -rf lib/x86_64-linux-gnu usr/lib/x86_64-linux-gnu
+RUN cp -r lib/* usr/lib/ && rm -rf lib
+WORKDIR $TARGET_ROOT/usr
+RUN find * -maxdepth 0 -type d -not -name 'bin' -and -not -name 'lib' -and -not -name 'sbin' -exec rm -rf {} \;
+
+# Crosscompile the OCR engine tesseract
+FROM build-base AS build-tesseract
+ARG ARCH_CFLAGS
+ARG TESSERACT_VERSION
+RUN mkdir -p $BUILD_ROOT/tesseract_deps
+RUN apt-get install --reinstall --download-only -o=dir::cache=$BUILD_ROOT/tesseract_deps -y -f \
+    libleptonica-dev:arm64 libicu-dev:arm64 libpango1.0-dev:arm64 libcairo2-dev:arm64 \
+    libpng-dev:arm64 libjpeg8-dev:arm64 libtiff5-dev:arm64 libgomp1:arm64
+RUN for f in $BUILD_ROOT/tesseract_deps/archives/*.deb; do dpkg -x $f $TARGET_ROOT; done
+RUN cp -r $TARGET_ROOT/lib/* $TARGET_ROOT/usr/lib/ && rm -rf $TARGET_ROOT/lib/
+RUN apt-get install --reinstall -y -f \
+    libleptonica-dev:arm64 libicu-dev:arm64 libpango1.0-dev:arm64 libcairo2-dev:arm64 \
+    libpng-dev:arm64 libjpeg8-dev:arm64 libtiff5-dev:arm64
+
+ARG TARGET_NAME=aarch64-linux-gnu
+
+
+WORKDIR ${BUILD_ROOT}
+RUN git clone --depth 1 --branch ${TESSERACT_VERSION} https://github.com/tesseract-ocr/tesseract.git
+WORKDIR ${BUILD_ROOT}/tesseract
+ENV LD_LIBRARY_PATH=$TARGET_ROOT/usr/lib:$TARGET_ROOT/usr/lib/$TARGET_NAME:$LD_LIBRARY_PATH
+ENV PATH=$TARGET_ROOT/usr/bin:$PATH
+ENV CC=${TARGET_NAME}-gcc
+ENV CXX=${TARGET_NAME}-g++
+ENV CPP=${TARGET_NAME}-g++
+ENV CFLAGS="$ARCH_CFLAGS -I$TARGET_ROOT/usr/include"
+ENV CXXFLAGS="$ARCH_CFLAGS -I$TARGET_ROOT/usr/include"
+ENV CPPFLAGS="$ARCH_CFLAGS -I$TARGET_ROOT/usr/include"
+RUN ./autogen.sh
+RUN ./configure --prefix=$TARGET_ROOT/usr --host=aarch64-linux-gnu
+RUN make
+RUN make install
+RUN ldconfig
+
+
+FROM build-base-arm AS build-python-pytesseract
+ARG PYTESSERACT_VERSION
+RUN mkdir -p $BUILD_ROOT/pillow_deps
+RUN apt-get install --reinstall --download-only -o=dir::cache=$BUILD_ROOT/pillow_deps -y -f libjpeg8-dev
+RUN for f in $BUILD_ROOT/pillow_deps/archives/*.deb; do dpkg -x $f $TARGET_ROOT; done
+RUN apt-get install -y zlib1g-dev libjpeg8-dev
+COPY --from=build-python $TARGET_ROOT $BUILD_ROOT
+ENV LD_LIBRARY_PATH=$BUILD_ROOT/usr/lib:$TARGET_ROOT/usr/lib:$LD_LIBRARY_PATH
+ENV PATH=$BUILD_ROOT/usr/bin:$TARGET_ROOT/usr/bin:$PATH
+RUN CFLAGS="-I$BUILD_ROOT/usr/include -I$TARGET_ROOT/usr/include $ARCH_CFLAGS" python3 -m pip install pytesseract==${PYTESSERACT_VERSION} --target=$TARGET_ROOT
+WORKDIR $TARGET_ROOT
+RUN mkdir -p usr/lib/python3.8/dist-packages/
+RUN mv PIL usr/lib/python3.8/dist-packages/ && mv pytesseract usr/lib/python3.8/dist-packages/
+RUN mkdir -p usr && mv bin usr
+RUN rm -rf Pillow*  pytesseract*
+COPY --from=build-tesseract $TARGET_ROOT $TARGET_ROOT
+
+# Crosscompile OpenCV with AXIS VDO bindings
+FROM build-base AS build-opencv
+FROM build-base AS build-opencv
+ARG ARCH_CFLAGS
+ARG AXIS_ARCH
+ARG OPENCV_BUILD_CORES
+ARG OPENCV_MODULES
+ARG OPENCV_VERSION
+ARG TARGET_NAME=aarch64-linux-gnu
+
+# Get required packages for both build env and target env
+RUN mkdir -p $BUILD_ROOT/opencv_deps
+RUN apt-get install --reinstall --download-only -o=dir::cache=$BUILD_ROOT/opencv_deps -y -f libglib2.0-dev:arm64 libsystemd0:arm64 libgfortran5:arm64
+RUN for f in $BUILD_ROOT/opencv_deps/archives/*.deb; do dpkg -x $f $TARGET_ROOT; done
+RUN for f in $BUILD_ROOT/opencv_deps/archives/*.deb; do dpkg -x $f $TARGET_ROOT/build; done
+RUN apt-get install -y libglib2.0-dev libsystemd0 libglib2.0-dev:arm64 libsystemd0:arm64
+
+RUN cp -r /usr/lib/x86_64-linux-gnu/glib-2.0 /usr/lib/
+
+
+# Get AXIS specific files for the build environment
+RUN mkdir -p /usr/lib/$TARGET_TOOLCHAIN/pkgconfig
+ENV PKG_CONFIG_LIBDIR=/usr/share/pkgconfig:/usr/lib/$TARGET_TOOLCHAIN/pkgconfig
+COPY opencv/capaxis/$TARGET_NAME/include/ /usr/include/vdo
+COPY opencv/capaxis/$TARGET_NAME/lib/ /usr/lib/$TARGET_TOOLCHAIN
+COPY opencv/capaxisvdo.pc /usr/lib/$TARGET_TOOLCHAIN/pkgconfig/
+COPY --from=acap-native-sdk /opt/axis/acapsdk/sysroots/$AXIS_ARCH/usr/include/vdo/* /usr/include/vdo/
+
+
+# Get AXIS specific files for the runtime
+# The stubs added below should perhaps be separated from lib/ to avoid confusion vs full lib counterparts
+COPY opencv/capaxis/$TARGET_NAME/stubs/ $TARGET_ROOT/build/usr/lib/
+COPY opencv/capaxis/$TARGET_NAME/lib/ $TARGET_ROOT/build/usr/lib/
+COPY --from=acap-native-sdk /opt/axis/acapsdk/sysroots/$AXIS_ARCH/usr/lib/libfido* $TARGET_ROOT/build/usr/lib/
+COPY --from=acap-native-sdk /opt/axis/acapsdk/sysroots/$AXIS_ARCH/usr/lib/libvdo* $TARGET_ROOT/build/usr/lib/
+COPY --from=acap-native-sdk /opt/axis/acapsdk/sysroots/$AXIS_ARCH/usr/lib/libfido* /usr/lib/$TARGET_TOOLCHAIN/
+COPY --from=acap-native-sdk /opt/axis/acapsdk/sysroots/$AXIS_ARCH/usr/lib/libvdo* /usr/lib/$TARGET_TOOLCHAIN/
+
+
+
+# Setup build directory
+COPY opencv/capaxis/$TARGET_NAME/stubs/ $TARGET_ROOT/usr/lib/
+COPY opencv/capaxis/$TARGET_NAME/lib/ $TARGET_ROOT/usr/lib/
+COPY --from=acap-native-sdk /opt/axis/acapsdk/sysroots/$AXIS_ARCH/usr/lib/libfido* $TARGET_ROOT/usr/lib/
+COPY --from=acap-native-sdk /opt/axis/acapsdk/sysroots/$AXIS_ARCH/usr/lib/libvdo* $TARGET_ROOT/usr/lib/
+COPY --from=build-openblas $TARGET_ROOT $TARGET_ROOT/build
+COPY --from=build-python $TARGET_ROOT $TARGET_ROOT/build
+COPY --from=build-python-numpy $TARGET_ROOT $TARGET_ROOT/build
+
+# Add libfido missing symlink
+WORKDIR $TARGET_ROOT/build/usr/lib
+RUN ln -s libfido.so.1 libfido.so
+
+WORKDIR $TARGET_ROOT/usr/lib
+RUN ln -s libfido.so.1 libfido.so
+
+
 
 
