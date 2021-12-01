@@ -478,9 +478,7 @@ RUN cmake -D CMAKE_TOOLCHAIN_FILE=../platforms/linux/aarch64-gnu.toolchain.cmake
           -D CMAKE_INSTALL_PREFIX=$TARGET_ROOT/usr \
           -D INSTALL_C_EXAMPLES=OFF \
           -D PYTHON3_EXECUTABLE=/usr/bin/python3.8 \
-          -D PYTHON3_INCLUDE_PATH=/usr/include/python3.8 \
-	  -D PYTHON3_INCLUDE_PATH=$TARGET_ROOT/usr/include/python3.8 \
-          -D PYTHON3_LIBRARIES=$TARGET_ROOT/usr/lib/$TARGET_NAME/libpython3.8.so \
+          -D PYTHON3_LIBRARIES=$TARGET_ROOT/usr/lib/python3.8 \
           -D PYTHON_LIBRARIES=$TARGET_ROOT/usr/lib/$TARGET_NAME/libpython3.8.so \
           -D PYTHON3_NUMPY_INCLUDE_DIRS=$TARGET_ROOT/usr/lib/python3.8/dist-packages/numpy/core/include \
           -D OPENCV_PYTHON3_INSTALL_PATH=$TARGET_ROOT/usr/lib/python3.8/dist-packages \
@@ -536,7 +534,7 @@ RUN cmake -D CMAKE_TOOLCHAIN_FILE=../platforms/linux/aarch64-gnu.toolchain.cmake
           ..
 
 # Build openCV libraries and other tools
-RUN make -j ${OPENCV_BUILD_CORES} install
+RUN make -j ${OPENCV_BUILD_CORES} install 
 
 # Make the header files available by creating a symlink to
 # the path specified in CMAKE params
