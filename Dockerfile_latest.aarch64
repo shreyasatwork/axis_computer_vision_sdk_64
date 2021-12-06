@@ -397,11 +397,11 @@ COPY --from=build-python $TARGET_ROOT $BUILD_ROOT
 ENV LD_LIBRARY_PATH=$BUILD_ROOT/usr/lib:$TARGET_ROOT/usr/lib:$LD_LIBRARY_PATH
 ENV PATH=$BUILD_ROOT/usr/bin:$TARGET_ROOT/usr/bin:$PATH
 RUN CFLAGS="-I$BUILD_ROOT/usr/include -I$TARGET_ROOT/usr/include $ARCH_CFLAGS" python3 -m pip install pytesseract==${PYTESSERACT_VERSION} --target=$TARGET_ROOT
-WORKDIR $TARGET_ROOT
-RUN mkdir -p usr/lib/python3.8/dist-packages/
-RUN mv PIL usr/lib/python3.8/dist-packages/ && mv pytesseract usr/lib/python3.8/dist-packages/
-RUN mkdir -p usr && mv bin usr
-RUN rm -rf Pillow*  pytesseract*
+#WORKDIR $TARGET_ROOT
+#RUN mkdir -p usr/lib/python3.8/dist-packages/
+#RUN mv PIL usr/lib/python3.8/dist-packages/ && mv pytesseract usr/lib/python3.8/dist-packages/
+#RUN mkdir -p usr && mv bin usr
+#RUN rm -rf Pillow*  pytesseract*
 COPY --from=build-tesseract $TARGET_ROOT $TARGET_ROOT
 
 # Crosscompile OpenCV with AXIS VDO bindings
@@ -471,7 +471,7 @@ RUN patch -p 1 < axisvdo-${OPENCV_VERSION}.patch
 # A fix for cmake not finding our blas/lapack headers when crosscompiling
 RUN sed -i 's/_find_header_file_in_dirs(OPENCV_CBLAS.*/set(OPENCV_CBLAS_H_PATH_OpenBLAS "${LAPACK_INCLUDE_DIR}\/cblas.h")/g' cmake/OpenCVFindLAPACK.cmake
 RUN sed -i 's/_find_header_file_in_dirs(OPENCV_LAPACKE.*/set(OPENCV_LAPACKE_H_PATH_OpenBLAS "${LAPACK_INCLUDE_DIR}\/lapacke.h")/g' cmake/OpenCVFindLAPACK.cmake
-RUN echo wow
+
 WORKDIR $BUILD_ROOT/opencv-${OPENCV_VERSION}/build
 RUN cmake -D CMAKE_TOOLCHAIN_FILE=../platforms/linux/aarch64-gnu.toolchain.cmake \
           -D CMAKE_BUILD_TYPE=RELEASE \
@@ -566,12 +566,10 @@ COPY --from=build-python-scipy $TARGET_ROOT $SDK_ROOT_DIR/python-scipy
 COPY --from=build-tesseract $TARGET_ROOT $SDK_ROOT_DIR/tesseract
 #TODO: johan says that this is wrong, so I removed it
 #COPY --from=build-install-opencv-python $TARGET_ROOT $SDK_ROOT_DIR/opencv-python
-FROM build-base AS sdk-devel-prune
-ARG SDK_ROOT_DIR
-COPY --from=packages $SDK_ROOT_DIR $SDK_ROOT_DIR
 
 
-#TODO: FIX THIS COPY
+
+#TODO: FIX THIS COPY, ALSOm it must be copied in sdk-devel-prune, uncomment it once here is fixed
 # Get OpenCL-related libs from the Native SDK
 #FROM build-base AS build-opencl-devel
 #ARG AXIS_ARCH
@@ -614,11 +612,12 @@ RUN CXX=aarch64-linux-gnu-g++ OUT_PATH=$TARGET_ROOT API_PATH=$BUILD_ROOT/tfproto
 
 
 # Package the "devel"-tagged image and prune some unneeded files
+FROM build-base AS sdk-devel-prune
 ARG SDK_ROOT_DIR
 COPY --from=packages $SDK_ROOT_DIR $SDK_ROOT_DIR
-COPY --from=build-opencl-devel $TARGET_ROOT $SDK_ROOT_DIR/opencl
+#COPY --from=build-opencl-devel $TARGET_ROOT $SDK_ROOT_DIR/opencl
 #TODO: FIX THIS
-#COPY --from=build-tensorflow-proto-devel $TARGET_ROOT $SDK_ROOT_DIR/tfproto
+COPY --from=build-tensorflow-proto-devel $TARGET_ROOT $SDK_ROOT_DIR/tfproto
 
 # General pruning
 WORKDIR $SDK_ROOT_DIR
