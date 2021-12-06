@@ -295,7 +295,6 @@ RUN apt-get install --reinstall --download-only -o=dir::cache=${BUILD_ROOT}/pyth
         libgfortran5
 RUN for f in ${BUILD_ROOT}/python-numpy-deps/archives/*.deb; do dpkg -x $f $TARGET_ROOT; done
 
-
 # Build SciPy with OpenBLAS
 FROM build-base-arm AS build-python-scipy
 ARG ARCH_CFLAGS
@@ -335,7 +334,7 @@ RUN git clone --depth 1 --branch ${TFSERVING_VERSION}  https://github.com/tensor
 COPY tfserving/install-tf.sh .
 RUN ["chmod", "+x", "./install-tf.sh"]
 RUN ./install-tf.sh ${BUILD_ROOT}/tensorflow ${BUILD_ROOT}/serving $TARGET_ROOT
-WORKDIR $TARGET_ROOT/usr/lib/python3/site-packages
+WORKDIR $TARGET_ROOT/usr/lib/python3/dist-packages
 COPY tfserving/tf_proto_utils.py .
 
 ARG TARGET_ROOT=/target-root
@@ -482,7 +481,7 @@ RUN cmake -D CMAKE_TOOLCHAIN_FILE=../platforms/linux/aarch64-gnu.toolchain.cmake
           -D PYTHON3_INCLUDE_PATH=$TARGET_ROOT/build/usr/include/$(cat /tmp/python_version) \
           -D PYTHON3_LIBRARIES=$TARGET_ROOT/build/usr/lib/$TARGET_TOOLCHAIN/lib$(cat /tmp/python_version).so \
           -D PYTHON3_NUMPY_INCLUDE_DIRS=$TARGET_ROOT/build/usr/lib/$(cat /tmp/python_version)/site-packages/numpy/core/include \
-          -D OPENCV_PYTHON3_INSTALL_PATH=$TARGET_ROOT/usr/lib/$(cat /tmp/python_version)/site-packages \
+          -D OPENCV_PYTHON3_INSTALL_PATH=$TARGET_ROOT/usr/lib/$(cat /tmp/python_version)/dist-packages \
           -D CMAKE_C_FLAGS="$ARCH_CFLAGS --sysroot=$TARGET_ROOT/build" \
           -D CMAKE_CXX_FLAGS="$ARCH_CFLAGS --sysroot=$TARGET_ROOT/build" \
           -D OpenBLAS_LIB=$TARGET_ROOT/usr/lib/libopenblas.so \
@@ -543,7 +542,7 @@ RUN make -j ${OPENCV_BUILD_CORES} install
 WORKDIR $TARGET_ROOT/usr/include
 RUN ln -sf opencv4/opencv2 opencv2
 
-RUN cd $TARGET_ROOT/usr/lib/$(cat /tmp/python_version)/site-packages && \
+RUN cd $TARGET_ROOT/usr/lib/$(cat /tmp/python_version)/dist-packages && \
     mv cv2.*.so cv2.so && \
     cp -r $TARGET_ROOT/lib/* $TARGET_ROOT/usr/lib/ && rm -rf $TARGET_ROOT/lib
 #WORKDIR $TARGET_ROOT/usr/lib/python3.8/dist-packages
@@ -669,3 +668,4 @@ COPY --from=sdk-devel-prune $SDK_ROOT_DIR $SDK_ROOT_DIR
 FROM ubuntu:${UBUNTU_VERSION} AS sdk-runtime
 ARG SDK_ROOT_DIR 
 COPY --from=sdk-runtime-prune $SDK_ROOT_DIR $SDK_ROOT_DIR
+RUN cp -r /axis/python-numpy/usr/lib/python3.8/site-packages /axis/python-numpy/usr/lib/python3.8/dist-packages/
