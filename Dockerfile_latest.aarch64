@@ -1,6 +1,7 @@
 #-- Build configuration --#
 # ARCH_CFLAGS is supplied as a compile option
-ARG ARCH_CFLAGS="-O2 -mcpu=cortex-a53+crypto" # -mfloat-abi=hard -mfpu=neon-fp-armv8 -mneon-for-64bits"
+ARG ARCH_CFLAGS="-O2 -mcpu=cortex-a53+crypto" 
+# -mfloat-abi=hard -mfpu=neon-fp-armv8 -mneon-for-64bits"
 # AXIS_ARCH is the AXIS platform descriptor
 ARG AXIS_ARCH=aarch64
 # BUILD_ROOT defines where in the build containers the building takes place
@@ -332,6 +333,7 @@ RUN git clone --depth 1 --branch v${TFSERVING_VERSION}  https://github.com/tenso
 RUN git clone --depth 1 --branch ${TFSERVING_VERSION}  https://github.com/tensorflow/serving.git
 
 COPY tfserving/install-tf.sh .
+RUN ["chmod", "+x", "./install-tf.sh"]
 RUN ./install-tf.sh ${BUILD_ROOT}/tensorflow ${BUILD_ROOT}/serving $TARGET_ROOT
 WORKDIR $TARGET_ROOT/usr/lib/python3/site-packages
 COPY tfserving/tf_proto_utils.py .
@@ -404,7 +406,6 @@ COPY --from=build-tesseract $TARGET_ROOT $TARGET_ROOT
 
 # Crosscompile OpenCV with AXIS VDO bindings
 FROM build-base AS build-opencv
-FROM build-base AS build-opencv
 ARG ARCH_CFLAGS
 ARG AXIS_ARCH
 ARG OPENCV_BUILD_CORES
@@ -470,29 +471,30 @@ RUN patch -p 1 < axisvdo-${OPENCV_VERSION}.patch
 # A fix for cmake not finding our blas/lapack headers when crosscompiling
 RUN sed -i 's/_find_header_file_in_dirs(OPENCV_CBLAS.*/set(OPENCV_CBLAS_H_PATH_OpenBLAS "${LAPACK_INCLUDE_DIR}\/cblas.h")/g' cmake/OpenCVFindLAPACK.cmake
 RUN sed -i 's/_find_header_file_in_dirs(OPENCV_LAPACKE.*/set(OPENCV_LAPACKE_H_PATH_OpenBLAS "${LAPACK_INCLUDE_DIR}\/lapacke.h")/g' cmake/OpenCVFindLAPACK.cmake
-
+RUN echo wow
 WORKDIR $BUILD_ROOT/opencv-${OPENCV_VERSION}/build
 RUN cmake -D CMAKE_TOOLCHAIN_FILE=../platforms/linux/aarch64-gnu.toolchain.cmake \
           -D CMAKE_BUILD_TYPE=RELEASE \
            # This path will contain all opencv header files
           -D CMAKE_INSTALL_PREFIX=$TARGET_ROOT/usr \
           -D INSTALL_C_EXAMPLES=OFF \
-          -D PYTHON3_EXECUTABLE=/usr/bin/python3.8 \
-          -D PYTHON3_LIBRARIES=$TARGET_ROOT/usr/lib/python3.8 \
-          -D PYTHON_LIBRARIES=$TARGET_ROOT/usr/lib/$TARGET_NAME/libpython3.8.so \
-          -D PYTHON3_NUMPY_INCLUDE_DIRS=$TARGET_ROOT/usr/lib/python3.8/dist-packages/numpy/core/include \
-          -D OPENCV_PYTHON3_INSTALL_PATH=$TARGET_ROOT/usr/lib/python3.8/dist-packages \
-          -D CMAKE_C_FLAGS="$ARCH_CFLAGS --sysroot=$TARGET_ROOT" \
-          -D CMAKE_CXX_FLAGS="$ARCH_CFLAGS --sysroot=$TARGET_ROOT" \
+          -D PYTHON3_EXECUTABLE=/usr/bin/python3 \
+          -D PYTHON3_INCLUDE_PATH=$TARGET_ROOT/build/usr/include/$(cat /tmp/python_version) \
+          -D PYTHON3_LIBRARIES=$TARGET_ROOT/build/usr/lib/$TARGET_TOOLCHAIN/lib$(cat /tmp/python_version).so \
+          -D PYTHON3_NUMPY_INCLUDE_DIRS=$TARGET_ROOT/build/usr/lib/$(cat /tmp/python_version)/site-packages/numpy/core/include \
+          -D OPENCV_PYTHON3_INSTALL_PATH=$TARGET_ROOT/usr/lib/$(cat /tmp/python_version)/site-packages \
+          -D CMAKE_C_FLAGS="$ARCH_CFLAGS --sysroot=$TARGET_ROOT/build" \
+          -D CMAKE_CXX_FLAGS="$ARCH_CFLAGS --sysroot=$TARGET_ROOT/build" \
           -D OpenBLAS_LIB=$TARGET_ROOT/usr/lib/libopenblas.so \
           -D OpenBLAS_INCLUDE_DIR=$TARGET_ROOT/usr/include \
           -D BLAS_LIBRARIES=$TARGET_ROOT/usr/lib/libopenblas.so \
           # ON:
+          -D BUILD_opencv_python3=ON \
           -D WITH_TBB=ON \
           -D WITH_OPENGL=ON \
           -D BUILD_JPEG=ON \
           -D ENABLE_NEON=ON \
-          -D CPU_BASELINE=NEON \
+          -D CPU_BASELINE=NEON , VFPV3 \
           -D WITH_AXIS_VDO=ON \
           -D CMAKE_SKIP_RPATH=ON \
           -D OPENCV_SKIP_PYTHON_LOADER=ON \
@@ -541,10 +543,14 @@ RUN make -j ${OPENCV_BUILD_CORES} install
 WORKDIR $TARGET_ROOT/usr/include
 RUN ln -sf opencv4/opencv2 opencv2
 
-
-WORKDIR $TARGET_ROOT/usr/lib/python3.8/dist-packages
+RUN cd $TARGET_ROOT/usr/lib/$(cat /tmp/python_version)/site-packages && \
+    mv cv2.*.so cv2.so && \
+    cp -r $TARGET_ROOT/lib/* $TARGET_ROOT/usr/lib/ && rm -rf $TARGET_ROOT/lib
+#WORKDIR $TARGET_ROOT/usr/lib/python3.8/dist-packages
 #RUN mv cv2.*.so cv2.so
-RUN cp -r $TARGET_ROOT/lib/* $TARGET_ROOT/usr/lib/ && rm -rf $TARGET_ROOT/lib
+#RUN cp -r $TARGET_ROOT/lib/* $TARGET_ROOT/usr/lib/ && rm -rf $TARGET_ROOT/lib
+
+
 
 FROM ubuntu:${UBUNTU_VERSION} AS packages
 ARG SDK_ROOT_DIR
@@ -558,21 +564,24 @@ COPY --from=build-python-pytesseract $TARGET_ROOT $SDK_ROOT_DIR/python-pytessera
 COPY --from=build-python-tfserving $TARGET_ROOT $SDK_ROOT_DIR/python-tfserving
 COPY --from=build-python-scipy $TARGET_ROOT $SDK_ROOT_DIR/python-scipy
 COPY --from=build-tesseract $TARGET_ROOT $SDK_ROOT_DIR/tesseract
-
+#TODO: johan says that this is wrong, so I removed it
+#COPY --from=build-install-opencv-python $TARGET_ROOT $SDK_ROOT_DIR/opencv-python
 FROM build-base AS sdk-devel-prune
 ARG SDK_ROOT_DIR
 COPY --from=packages $SDK_ROOT_DIR $SDK_ROOT_DIR
 
+
+#TODO: FIX THIS COPY
 # Get OpenCL-related libs from the Native SDK
-FROM build-base AS build-opencl-devel
-ARG AXIS_ARCH
-COPY --from=acap-native-sdk /opt/axis/acapsdk/sysroots/$AXIS_ARCH/usr/include/CL $TARGET_ROOT/usr/include/CL
-COPY --from=acap-native-sdk /opt/axis/acapsdk/sysroots/$AXIS_ARCH/usr/lib/pkgconfig/opencl.pc $TARGET_ROOT/usr/lib/pkgconfig/opencl.pc
-COPY --from=acap-native-sdk /opt/axis/acapsdk/sysroots/$AXIS_ARCH/usr/lib/libEGL* $TARGET_ROOT/usr/lib/
-COPY --from=acap-native-sdk /opt/axis/acapsdk/sysroots/$AXIS_ARCH/usr/lib/libOpenCL* $TARGET_ROOT/usr/lib/
-COPY --from=acap-native-sdk /opt/axis/acapsdk/sysroots/$AXIS_ARCH/usr/lib/libGAL* $TARGET_ROOT/usr/lib/
-COPY --from=acap-native-sdk /opt/axis/acapsdk/sysroots/$AXIS_ARCH/usr/lib/libVSC* $TARGET_ROOT/usr/lib/
-COPY --from=acap-native-sdk /opt/axis/acapsdk/sysroots/$AXIS_ARCH/usr/lib/libGLES* $TARGET_ROOT/usr/lib/
+#FROM build-base AS build-opencl-devel
+#ARG AXIS_ARCH
+#COPY --from=acap-native-sdk /opt/axis/acapsdk/sysroots/$AXIS_ARCH/usr/include/CL $TARGET_ROOT/usr/include/CL
+#COPY --from=acap-native-sdk /opt/axis/acapsdk/sysroots/$AXIS_ARCH/usr/lib/pkgconfig/opencl.pc $TARGET_ROOT/usr/lib/pkgconfig/opencl.pc
+#COPY --from=acap-native-sdk /opt/axis/acapsdk/sysroots/$AXIS_ARCH/usr/lib/libEGL* $TARGET_ROOT/usr/lib/
+#COPY --from=acap-native-sdk /opt/axis/acapsdk/sysroots/$AXIS_ARCH/usr/lib/libOpenCL* $TARGET_ROOT/usr/lib/
+#COPY --from=acap-native-sdk /opt/axis/acapsdk/sysroots/$AXIS_ARCH/usr/lib/libGAL* $TARGET_ROOT/usr/lib/
+#COPY --from=acap-native-sdk /opt/axis/acapsdk/sysroots/$AXIS_ARCH/usr/lib/libVSC* $TARGET_ROOT/usr/lib/
+#COPY --from=acap-native-sdk /opt/axis/acapsdk/sysroots/$AXIS_ARCH/usr/lib/libGLES* $TARGET_ROOT/usr/lib/
 
 
 # Development-related tensorflow proto files
@@ -605,11 +614,11 @@ RUN CXX=aarch64-linux-gnu-g++ OUT_PATH=$TARGET_ROOT API_PATH=$BUILD_ROOT/tfproto
 
 
 # Package the "devel"-tagged image and prune some unneeded files
-FROM build-base AS sdk-devel-prune
 ARG SDK_ROOT_DIR
 COPY --from=packages $SDK_ROOT_DIR $SDK_ROOT_DIR
 COPY --from=build-opencl-devel $TARGET_ROOT $SDK_ROOT_DIR/opencl
-COPY --from=build-tensorflow-proto-devel $TARGET_ROOT $SDK_ROOT_DIR/tfproto
+#TODO: FIX THIS
+#COPY --from=build-tensorflow-proto-devel $TARGET_ROOT $SDK_ROOT_DIR/tfproto
 
 # General pruning
 WORKDIR $SDK_ROOT_DIR
@@ -622,6 +631,9 @@ FROM ubuntu:${UBUNTU_VERSION} AS sdk-runtime-prune
 ARG SDK_ROOT_DIR
 COPY --from=packages $SDK_ROOT_DIR $SDK_ROOT_DIR
 WORKDIR $SDK_ROOT_DIR
+
+
+
 
 # Prune runtime unrelated files
 RUN find */usr/* -maxdepth 0 -type d -not -name 'bin' -and -not -name 'lib' -and -not -name 'sbin' -exec rm -rf {} \;
@@ -656,5 +668,5 @@ COPY --from=sdk-devel-prune $SDK_ROOT_DIR $SDK_ROOT_DIR
 
 # Minimal container for the runtime-tagged SDK
 FROM ubuntu:${UBUNTU_VERSION} AS sdk-runtime
-ARG SDK_ROOT_DIR
+ARG SDK_ROOT_DIR 
 COPY --from=sdk-runtime-prune $SDK_ROOT_DIR $SDK_ROOT_DIR
