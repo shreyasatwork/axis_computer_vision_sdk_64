@@ -15,7 +15,8 @@ ARG SDK_ROOT_DIR=/axis/
 # UBUNTU_ARCH is the Ubuntu platform descriptor
 ARG UBUNTU_ARCH=arm64
 # TARGET_TOOLCHAIN is the name of the compilation toolchain for the target platform
-ARG TARGET_TOOLCHAIN=aarch64
+#ARG TARGET_TOOLCHAIN=aarch64
+ARG TARGET_TOOLCHAIN=aarch64-linux-gnu
 # TARGET_ROOT defines where in the build containers the resulting application is put
 ARG TARGET_ROOT=/target-root
 # UBUNTU_VERSION defines the ubuntu version of the build and SDK containers
@@ -330,10 +331,10 @@ RUN apt-get install -y --no-install-recommends \
 WORKDIR ${BUILD_ROOT}
 RUN git clone --depth 1 --branch v${TFSERVING_VERSION}  https://github.com/tensorflow/tensorflow.git
 RUN git clone --depth 1 --branch ${TFSERVING_VERSION}  https://github.com/tensorflow/serving.git
-
 COPY tfserving/install-tf.sh .
 RUN ["chmod", "+x", "./install-tf.sh"]
 RUN ./install-tf.sh ${BUILD_ROOT}/tensorflow ${BUILD_ROOT}/serving $TARGET_ROOT
+
 WORKDIR $TARGET_ROOT/usr/lib/python3/dist-packages
 COPY tfserving/tf_proto_utils.py .
 
@@ -365,17 +366,17 @@ RUN apt-get install --reinstall -y -f \
     libleptonica-dev:arm64 libicu-dev:arm64 libpango1.0-dev:arm64 libcairo2-dev:arm64 \
     libpng-dev:arm64 libjpeg8-dev:arm64 libtiff5-dev:arm64
 
-ARG TARGET_NAME=aarch64-linux-gnu
+ARG TESSERACT_TARGET_TOOLCHAIN=aarch64-linux-gnu
 
 
 WORKDIR ${BUILD_ROOT}
 RUN git clone --depth 1 --branch ${TESSERACT_VERSION} https://github.com/tesseract-ocr/tesseract.git
 WORKDIR ${BUILD_ROOT}/tesseract
-ENV LD_LIBRARY_PATH=$TARGET_ROOT/usr/lib:$TARGET_ROOT/usr/lib/$TARGET_NAME:$LD_LIBRARY_PATH
+ENV LD_LIBRARY_PATH=$TARGET_ROOT/usr/lib:$TARGET_ROOT/usr/lib/$TARGET_TOOLCHAIN:$LD_LIBRARY_PATH
 ENV PATH=$TARGET_ROOT/usr/bin:$PATH
-ENV CC=${TARGET_NAME}-gcc
-ENV CXX=${TARGET_NAME}-g++
-ENV CPP=${TARGET_NAME}-g++
+ENV CC=${TESSERACT_TARGET_TOOLCHAIN}-gcc
+ENV CXX=${TESSERACT_TARGET_TOOLCHAIN}-g++
+ENV CPP=${TESSERACT_TARGET_TOOLCHAIN}-g++
 ENV CFLAGS="$ARCH_CFLAGS -I$TARGET_ROOT/usr/include"
 ENV CXXFLAGS="$ARCH_CFLAGS -I$TARGET_ROOT/usr/include"
 ENV CPPFLAGS="$ARCH_CFLAGS -I$TARGET_ROOT/usr/include"
@@ -410,46 +411,50 @@ ARG AXIS_ARCH
 ARG OPENCV_BUILD_CORES
 ARG OPENCV_MODULES
 ARG OPENCV_VERSION
-ARG TARGET_NAME=aarch64-linux-gnu
+#ARG OPENCV_TARGET_TOOLCHAIN=aarch64-linux-gnu
 
 # Get required packages for both build env and target env
 RUN mkdir -p $BUILD_ROOT/opencv_deps
-RUN apt-get install --reinstall --download-only -o=dir::cache=$BUILD_ROOT/opencv_deps -y -f libglib2.0-dev:arm64 libsystemd0:arm64 libgfortran5:arm64
+RUN apt-get install --reinstall --download-only -o=dir::cache=$BUILD_ROOT/opencv_deps -y -f libglib2.0-dev:$UBUNTU_ARCH libsystemd0:$UBUNTU_ARCH libgfortran5:$UBUNTU_ARCH
 RUN for f in $BUILD_ROOT/opencv_deps/archives/*.deb; do dpkg -x $f $TARGET_ROOT; done
 RUN for f in $BUILD_ROOT/opencv_deps/archives/*.deb; do dpkg -x $f $TARGET_ROOT/build; done
-RUN apt-get install -y libglib2.0-dev libsystemd0 libglib2.0-dev:arm64 libsystemd0:arm64
+RUN apt-get install -y libglib2.0-dev libsystemd0 libglib2.0-dev:$UBUNTU_ARCH libsystemd0:$UBUNTU_ARCH
 
 RUN cp -r /usr/lib/x86_64-linux-gnu/glib-2.0 /usr/lib/
+#RUN cp -r /usr/lib/x86_64-linux-gnu/glib-2.0/* /usr/lib/
 
 
 # Get AXIS specific files for the build environment
 RUN mkdir -p /usr/lib/$TARGET_TOOLCHAIN/pkgconfig
 ENV PKG_CONFIG_LIBDIR=/usr/share/pkgconfig:/usr/lib/$TARGET_TOOLCHAIN/pkgconfig
-COPY opencv/capaxis/$TARGET_NAME/include/ /usr/include/vdo
-COPY opencv/capaxis/$TARGET_NAME/lib/ /usr/lib/$TARGET_TOOLCHAIN
+COPY opencv/capaxis/$TARGET_TOOLCHAIN/include/ /usr/include/vdo
+COPY opencv/capaxis/$TARGET_TOOLCHAIN/lib/ /usr/lib/$TARGET_TOOLCHAIN
+#COPY opencv/capaxis/$TARGET_TOOLCHAIN/lib/ /usr/lib/$TARGET_TOOLCHAIN
 COPY opencv/capaxisvdo.pc /usr/lib/$TARGET_TOOLCHAIN/pkgconfig/
 COPY --from=acap-native-sdk /opt/axis/acapsdk/sysroots/$AXIS_ARCH/usr/include/vdo/* /usr/include/vdo/
+COPY --from=acap-native-sdk /opt/axis/acapsdk/sysroots/$AXIS_ARCH/usr/lib/ /usr/lib/$TARGET_TOOLCHAIN/
 
 
 # Get AXIS specific files for the runtime
 # The stubs added below should perhaps be separated from lib/ to avoid confusion vs full lib counterparts
-COPY opencv/capaxis/$TARGET_NAME/stubs/ $TARGET_ROOT/build/usr/lib/
-COPY opencv/capaxis/$TARGET_NAME/lib/ $TARGET_ROOT/build/usr/lib/
+COPY opencv/capaxis/$TARGET_TOOLCHAIN/stubs/ $TARGET_ROOT/build/usr/lib/
+COPY opencv/capaxis/$TARGET_TOOLCHAIN/lib/ $TARGET_ROOT/build/usr/lib/
+COPY --from=acap-native-sdk /opt/axis/acapsdk/sysroots/$AXIS_ARCH/usr/lib/glib-2.0 $TARGET_ROOT/usr/lib/glib-2.0
 COPY --from=acap-native-sdk /opt/axis/acapsdk/sysroots/$AXIS_ARCH/usr/lib/libfido* $TARGET_ROOT/build/usr/lib/
 COPY --from=acap-native-sdk /opt/axis/acapsdk/sysroots/$AXIS_ARCH/usr/lib/libvdo* $TARGET_ROOT/build/usr/lib/
 COPY --from=acap-native-sdk /opt/axis/acapsdk/sysroots/$AXIS_ARCH/usr/lib/libfido* /usr/lib/$TARGET_TOOLCHAIN/
 COPY --from=acap-native-sdk /opt/axis/acapsdk/sysroots/$AXIS_ARCH/usr/lib/libvdo* /usr/lib/$TARGET_TOOLCHAIN/
-
-
-
-# Setup build directory
-COPY opencv/capaxis/$TARGET_NAME/stubs/ $TARGET_ROOT/usr/lib/
-COPY opencv/capaxis/$TARGET_NAME/lib/ $TARGET_ROOT/usr/lib/
-COPY --from=acap-native-sdk /opt/axis/acapsdk/sysroots/$AXIS_ARCH/usr/lib/libfido* $TARGET_ROOT/usr/lib/
-COPY --from=acap-native-sdk /opt/axis/acapsdk/sysroots/$AXIS_ARCH/usr/lib/libvdo* $TARGET_ROOT/usr/lib/
 COPY --from=build-openblas $TARGET_ROOT $TARGET_ROOT/build
 COPY --from=build-python $TARGET_ROOT $TARGET_ROOT/build
 COPY --from=build-python-numpy $TARGET_ROOT $TARGET_ROOT/build
+
+
+
+# SEEMS DUPLICATED STUFF, removed
+COPY opencv/capaxis/$TARGET_TOOLCHAIN/stubs/ $TARGET_ROOT/usr/lib/
+COPY opencv/capaxis/$TARGET_TOOLCHAIN/lib/ $TARGET_ROOT/usr/lib/
+COPY --from=acap-native-sdk /opt/axis/acapsdk/sysroots/$AXIS_ARCH/usr/lib/libfido* $TARGET_ROOT/usr/lib/
+COPY --from=acap-native-sdk /opt/axis/acapsdk/sysroots/$AXIS_ARCH/usr/lib/libvdo* $TARGET_ROOT/usr/lib/
 
 # Add libfido missing symlink
 WORKDIR $TARGET_ROOT/build/usr/lib
