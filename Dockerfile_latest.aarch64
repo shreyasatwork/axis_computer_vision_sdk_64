@@ -450,7 +450,7 @@ COPY --from=build-python-numpy $TARGET_ROOT $TARGET_ROOT/build
 
 
 
-# SEEMS DUPLICATED STUFF, removed
+# SEEMS DUPLICATED STUFF, removed, I was wrong, it was not duplicated, added again, sorry johan
 COPY opencv/capaxis/$TARGET_TOOLCHAIN/stubs/ $TARGET_ROOT/usr/lib/
 COPY opencv/capaxis/$TARGET_TOOLCHAIN/lib/ $TARGET_ROOT/usr/lib/
 COPY --from=acap-native-sdk /opt/axis/acapsdk/sysroots/$AXIS_ARCH/usr/lib/libfido* $TARGET_ROOT/usr/lib/
